@@ -98,7 +98,7 @@ html, body, [class*="css"] {
 """, unsafe_allow_html=True)
 
 st.markdown(
-'<div class="main-title"> AI Employee Attendance Behavior Analysis</div>',
+'<div class="main-title"> Employee Attendance Behavior Analysis</div>',
 unsafe_allow_html=True
 )
 
