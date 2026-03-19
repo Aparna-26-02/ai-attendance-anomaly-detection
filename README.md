@@ -1,4 +1,4 @@
-Employee Attendance Attendence Behaviour Analysis
+Employee Attendance Behaviour Analysis
 
 Project Overview
 This project analyzes employee attendance behavior using Machine Learning to detect abnormal working patterns. The system processes employee login and logout records, performs feature engineering, and identifies anomalies using anomaly detection models.
