@@ -93,7 +93,27 @@ html, body, [class*="css"] {
     border-radius: 12px;
     overflow: hidden;
 }
+/* Professional Reset Button (White Text) */
+div[data-testid="stButton"] > button {
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 6px 14px;
+    font-size: 13px;
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
 
+/* Hover effect */
+div[data-testid="stButton"] > button:hover {
+    background: linear-gradient(135deg, #5a6fd8, #6a3fa0);
+}
+
+/* Click effect */
+div[data-testid="stButton"] > button:active {
+    transform: scale(0.96);
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -109,6 +129,31 @@ if "file_uploaded" not in st.session_state:
 if "mapping_confirmed" not in st.session_state:
     st.session_state.mapping_confirmed = False
 
+if "validated" not in st.session_state:
+    st.session_state.validated = False
+
+# ---------------- RESET BUTTON (GLOBAL) ----------------
+col1, col2 = st.columns([10, 1])
+
+with col2:
+    if st.button("⟲ Reset"):
+        st.session_state.file_uploaded = False
+        st.session_state.mapping_confirmed = False
+
+        keys_to_remove = [
+            "df",
+            "emp_col",
+            "login_col",
+            "logout_col",
+            "date_col",
+            "dept_col"
+        ]
+
+        for key in keys_to_remove:
+            if key in st.session_state:
+                del st.session_state[key]
+
+        st.rerun()
 # ---------------- TIME CONVERSION ----------------
 def time_to_minutes(time_str):
     try:
@@ -125,6 +170,31 @@ def time_to_minutes(time_str):
 # =====================================================
 # STEP 1 : UPLOAD DATASET
 # =====================================================
+# ---------------- HELPER FUNCTIONS ----------------
+def is_time_column(series):
+    try:
+        sample = series.dropna().astype(str).head(10)
+        for val in sample:
+            if ":" not in val:
+                return False
+        return True
+    except:
+        return False
+
+
+def is_date_column(series):
+    try:
+        sample = series.dropna().astype(str).head(20)
+
+        # Try flexible parsing
+        parsed = pd.to_datetime(sample, errors="coerce", dayfirst=True)
+
+        # If most values parsed → it's a date column
+        success_ratio = parsed.notna().sum() / len(sample)
+
+        return success_ratio > 0.7   # 70% threshold
+    except:
+        return False
 
 if not st.session_state.file_uploaded:
 
@@ -147,6 +217,7 @@ if not st.session_state.file_uploaded:
         st.rerun()
 
 
+
 # =====================================================
 # STEP 2 : COLUMN SELECTION
 # =====================================================
@@ -154,6 +225,10 @@ if not st.session_state.file_uploaded:
 elif not st.session_state.mapping_confirmed:
 
     df = st.session_state.df
+
+    # Initialize validation flag
+    if "validated" not in st.session_state:
+        st.session_state.validated = False
 
     st.markdown('<div class="section-title"> Dataset Preview</div>', unsafe_allow_html=True)
     st.dataframe(df.head(), use_container_width=True)
@@ -175,18 +250,51 @@ elif not st.session_state.mapping_confirmed:
         ["None"] + columns
     )
 
+    # ---------------- VALIDATION DISPLAY (ONLY AFTER CLICK) ----------------
+    if st.session_state.validated:
+
+        error_messages = []
+
+        if not is_time_column(df[login_col]):
+            error_messages.append("Login Time column must be in HH:MM format")
+
+        if not is_time_column(df[logout_col]):
+            error_messages.append("Logout Time column must be in HH:MM format")
+
+        if not is_date_column(df[date_col]):
+            error_messages.append("Date column must be a valid date format")
+
+        if error_messages:
+            st.error("❌ Invalid column selection:\n\n" + "\n".join(error_messages))
+
+    # ---------------- CONFIRM BUTTON ----------------
     if st.button("Confirm Column Mapping", use_container_width=True):
 
-        st.session_state.emp_col = emp_col
-        st.session_state.login_col = login_col
-        st.session_state.logout_col = logout_col
-        st.session_state.date_col = date_col
-        st.session_state.dept_col = dept_col
+        st.session_state.validated = True  # trigger validation
 
-        st.session_state.mapping_confirmed = True
-        st.rerun()
+        error_messages = []
 
+        if not is_time_column(df[login_col]):
+            error_messages.append("Login Time column must be in HH:MM format")
 
+        if not is_time_column(df[logout_col]):
+            error_messages.append("Logout Time column must be in HH:MM format")
+
+        if not is_date_column(df[date_col]):
+            error_messages.append("Date column must be a valid date format")
+
+        if error_messages:
+            st.warning("⚠️ Please fix the errors before proceeding.")
+        else:
+            st.session_state.emp_col = emp_col
+            st.session_state.login_col = login_col
+            st.session_state.logout_col = logout_col
+            st.session_state.date_col = date_col
+            st.session_state.dept_col = dept_col
+
+            st.session_state.mapping_confirmed = True
+            st.session_state.validated = False  # reset state
+            st.rerun()
 # =====================================================
 # STEP 3 : PREPROCESS + MODEL
 # =====================================================
@@ -218,7 +326,8 @@ else:
     df["total_work_min"] = (df["logout_min"] - df["login_min"] + 1440) % 1440
     df["work_hours"] = df["total_work_min"] / 60
 
-    df["date_dt"] = pd.to_datetime(df["date"], errors="coerce")
+    df["date_dt"] = pd.to_datetime(df["date"], errors="coerce", dayfirst=True)
+    df["date"] = df["date_dt"].dt.strftime("%Y-%m-%d")
     df["day_of_week"] = df["date_dt"].dt.day_name()
 
     df["login_deviation"] = df["login_min"] - 540
@@ -342,4 +451,25 @@ else:
             ]],
             use_container_width=True
         )
+        # Prepare anomaly data
+        anomaly_df = df[df["status"] != "Normal"][[
+            "employee_id",
+            "date",
+            "login_time",
+            "logout_time",
+            "work_hours",
+            "status",
+            "reason"
+        ]]
 
+# Convert to CSV
+        csv = anomaly_df.to_csv(index=False).encode("utf-8")
+
+# Download button
+        st.download_button(
+            label=" Download Anomaly Records as CSV",
+            data=csv,
+            file_name="anomaly_records.csv",
+            mime="text/csv",
+            use_container_width=True
+        )
